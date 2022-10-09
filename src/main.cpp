@@ -1,9 +1,10 @@
 #include <Arduino.h>
 #include <driver/uart.h>
 
-char* test_str = "This is a test string.\n";
-
+char test_str[] = "This is a test string.\n";
+static const char *TAG = "uart_events";
 const uart_port_t uart_num = UART_NUM_2;
+const uart_port_t uart_num2 = UART_NUM_1;
 uart_config_t uart_config = {
     .baud_rate = 115200,
     .data_bits = UART_DATA_8_BITS,
@@ -12,22 +13,88 @@ uart_config_t uart_config = {
     .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
 };
 // Setup UART buffered IO with event queue
+QueueHandle_t queue;
 QueueHandle_t uart_queue;
+QueueHandle_t uart_queue2;
 const int uart_buffer_size = (1024 * 2);
 const int queue_size = 20;
 
+struct event_data {
+    int uart_num;
+    uart_event_t event;
+};
+
+void rec_task(void *pvParameters)
+{
+    event_data event;
+    size_t buffered_size;
+    uint8_t* dtmp = (uint8_t*) malloc(uart_buffer_size);
+    for(;;) {
+        // Waiting for UART event.
+        if(xQueueReceive(queue, (void * )&event, (portTickType)portMAX_DELAY)) {
+            switch(event.event.type) {
+                case UART_DATA:
+                    bzero(dtmp, uart_buffer_size);
+                    uart_get_buffered_data_len(event.uart_num, &buffered_size);
+                    uart_read_bytes(event.uart_num, dtmp, buffered_size, portMAX_DELAY);
+                    printf("uart[%d] read: %s", event.uart_num, dtmp);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+}
+
+void u1t(void *pvParameters)
+{
+    event_data event;
+    event.uart_num = uart_num;
+    for(;;) {
+        // Waiting for UART event.
+        if(xQueueReceive(uart_queue, (void * )&event.event, (portTickType)portMAX_DELAY)) {
+            xQueueSend(queue, (void * )&event, (portTickType)portMAX_DELAY);
+        }
+    }
+}
+
+void u2t(void *pvParameters)
+{
+    event_data event;
+    event.uart_num = uart_num2;
+    for(;;) {
+        // Waiting for UART event.
+        if(xQueueReceive(uart_queue2, (void * )&event.event, (portTickType)portMAX_DELAY)) {
+            xQueueSend(queue, (void * )&event, (portTickType)portMAX_DELAY);
+        }
+    }
+}
+
+
 void setup() {
+  queue = xQueueCreate(queue_size, sizeof(event_data));
+  Serial.begin(115200);
+
   // Configure UART parameters
   ESP_ERROR_CHECK(uart_param_config(uart_num, &uart_config));
-  ESP_ERROR_CHECK(uart_set_pin(UART_NUM_0, 0, 26, -1, -1));
+  ESP_ERROR_CHECK(uart_set_pin(uart_num, 0, 26, -1, -1));
   // Install UART driver using an event queue here
-  ESP_ERROR_CHECK(uart_driver_install(UART_NUM_2, uart_buffer_size, \
-                                          uart_buffer_size, strlen(test_str), &uart_queue, 0));
+  ESP_ERROR_CHECK(uart_driver_install(uart_num, uart_buffer_size*2, uart_buffer_size*2, queue_size, &uart_queue, 0));
+
+  // Configure UART parameters
+  ESP_ERROR_CHECK(uart_param_config(uart_num2, &uart_config));
+  ESP_ERROR_CHECK(uart_set_pin(uart_num2, 32, 33, -1, -1));
+  // Install UART driver using an event queue here
+  ESP_ERROR_CHECK(uart_driver_install(uart_num2, uart_buffer_size*2, uart_buffer_size*2, queue_size, &uart_queue2, 0));
+
+  // Create a task to handler UART event from ISR
+  xTaskCreate(rec_task, "uart_rec_task", 2048, NULL, 12, NULL);
+  xTaskCreate(u1t, "u1t", 2048, NULL, 15, NULL);
+  xTaskCreate(u2t, "u2t", 2048, NULL, 18, NULL);
 }
 
 void loop() {
   // Write data to UART.
-  // uart_write_bytes(uart_num, (const char*)test_str, strlen(test_str));
   uart_write_bytes_with_break(uart_num, (const char*)test_str, strlen(test_str), 100);
   delay(1000);
 }
