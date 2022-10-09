@@ -14,7 +14,7 @@ uart_config_t uart_config = {
 };
 // Setup UART buffered IO with event queue
 QueueHandle_t queue;
-QueueHandle_t uart_queue;
+QueueHandle_t uart_queue1;
 QueueHandle_t uart_queue2;
 const int uart_buffer_size = (1024 * 2);
 const int queue_size = 20;
@@ -46,25 +46,14 @@ void rec_task(void *pvParameters)
     }
 }
 
-void u1t(void *pvParameters)
+void uart_task(void *pvParameters)
 {
+    QueueHandle_t* uart_queue = (QueueHandle_t*) pvParameters;
     event_data event;
     event.uart_num = uart_num;
     for(;;) {
         // Waiting for UART event.
-        if(xQueueReceive(uart_queue, (void * )&event.event, (portTickType)portMAX_DELAY)) {
-            xQueueSend(queue, (void * )&event, (portTickType)portMAX_DELAY);
-        }
-    }
-}
-
-void u2t(void *pvParameters)
-{
-    event_data event;
-    event.uart_num = uart_num2;
-    for(;;) {
-        // Waiting for UART event.
-        if(xQueueReceive(uart_queue2, (void * )&event.event, (portTickType)portMAX_DELAY)) {
+        if(xQueueReceive(*uart_queue, (void * )&event.event, (portTickType)portMAX_DELAY)) {
             xQueueSend(queue, (void * )&event, (portTickType)portMAX_DELAY);
         }
     }
@@ -79,7 +68,7 @@ void setup() {
   ESP_ERROR_CHECK(uart_param_config(uart_num, &uart_config));
   ESP_ERROR_CHECK(uart_set_pin(uart_num, 0, 26, -1, -1));
   // Install UART driver using an event queue here
-  ESP_ERROR_CHECK(uart_driver_install(uart_num, uart_buffer_size*2, uart_buffer_size*2, queue_size, &uart_queue, 0));
+  ESP_ERROR_CHECK(uart_driver_install(uart_num, uart_buffer_size*2, uart_buffer_size*2, queue_size, &uart_queue1, 0));
 
   // Configure UART parameters
   ESP_ERROR_CHECK(uart_param_config(uart_num2, &uart_config));
@@ -89,8 +78,8 @@ void setup() {
 
   // Create a task to handler UART event from ISR
   xTaskCreate(rec_task, "uart_rec_task", 2048, NULL, 12, NULL);
-  xTaskCreate(u1t, "u1t", 2048, NULL, 15, NULL);
-  xTaskCreate(u2t, "u2t", 2048, NULL, 18, NULL);
+  xTaskCreate(uart_task, "u1t", 2048, (void*)&uart_queue2, 15, NULL);
+  xTaskCreate(uart_task, "u2t", 2048, (void*)&uart_queue1, 18, NULL);
 }
 
 void loop() {
