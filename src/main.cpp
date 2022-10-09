@@ -72,19 +72,10 @@ void configure_uart(uart_port_t uart, QueueHandle_t* uart_queue, int tx_pin, int
 void setup() {
   queue = xQueueCreate(queue_size, sizeof(event_data));
   Serial.begin(115200);
+  
+  // Configure UART parameters
   configure_uart(uart_num, &uart_queue1, 0, 26);
   configure_uart(uart_num2, &uart_queue2, 32, 33);
-  // Configure UART parameters
-  ESP_ERROR_CHECK(uart_param_config(uart_num, &uart_config));
-  ESP_ERROR_CHECK(uart_set_pin(uart_num, 0, 26, -1, -1));
-  // Install UART driver using an event queue here
-  ESP_ERROR_CHECK(uart_driver_install(uart_num, uart_buffer_size*2, uart_buffer_size*2, queue_size, &uart_queue1, 0));
-
-  // Configure UART parameters
-  ESP_ERROR_CHECK(uart_param_config(uart_num2, &uart_config));
-  ESP_ERROR_CHECK(uart_set_pin(uart_num2, 32, 33, -1, -1));
-  // Install UART driver using an event queue here
-  ESP_ERROR_CHECK(uart_driver_install(uart_num2, uart_buffer_size*2, uart_buffer_size*2, queue_size, &uart_queue2, 0));
 
   // Create a task to handler UART event from ISR
   xTaskCreate(rec_task, "uart_rec_task", 2048, NULL, 12, NULL);
